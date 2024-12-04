@@ -29,7 +29,7 @@ public class MessageUtils {
                 messageLength);
         byte[] message = new byte[messageLength];
 	    /*
-    	    if (reader.read(message) != messageLength) {
+    	   if (reader.read(message) != messageLength) {
             	System.err.println("Message length does not match");
             	return null;
     	    }

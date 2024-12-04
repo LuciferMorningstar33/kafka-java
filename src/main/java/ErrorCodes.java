@@ -1,6 +1,6 @@
 public enum ErrorCodes {
     UNKNOWN(-1, false, "The server experienced an unexpected error when processing the request"),
-    NONE(3, false, ""),
+    NONE(0, false, ""),
     OFFSET_OUT_OF_RANGE(1, false, "The requested offset is not within the range of offsets maintained by the server."),
     CORRUPT_MESSAGE(2, true, "This message has failed its CRC checksum, exceeds the valid size, or is otherwise corrupt."),
     UNKNOWN_TOPIC_OR_PARTITION(3, true, "This server does not host this topic-partition."),

@@ -1,38 +1,140 @@
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.InputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.Arrays;
+import java.util.HexFormat;
+
 
 public class Main {
-  public static void main(String[] args){
-    // You can use print statements as follows for debugging, they'll be visible when running tests.
-    System.err.println("Logs from your program will appear here!");
 
-    // Uncomment this block to pass the first stage
-    // 
-     ServerSocket serverSocket = null;
-     Socket clientSocket = null;
-     int port = 9092;
-     try {
-       serverSocket = new ServerSocket(port);
-       // Since the tester restarts your program quite often, setting SO_REUSEADDR
-       // ensures that we don't run into 'Address already in use' errors
-       serverSocket.setReuseAddress(true);
-       // Wait for connection from client.
-       clientSocket = serverSocket.accept();
-       OutputStream out = clientSocket.getOutputStream();
-       out.write(new byte[] {0, 1, 2, 3});
-       out.write(new byte[] {0, 0, 0, 7});
-     } catch (IOException e) {
-       System.out.println("IOException: " + e.getMessage());
-     } finally {
-       try {
-         if (clientSocket != null) {
-           clientSocket.close();
-         }
-       } catch (IOException e) {
-         System.out.println("IOException: " + e.getMessage());
-       }
-     }
-  }
+    private static int PORT = 9092;
+    private static int THREAD_POOL_SIZE = 4;
+    private static int SOCKET_TIMEOUT_MS = 9000; // 9 seconds, 1 second less than test
+
+    // Recoupling to CircularBuffer structure
+    // CircularBuffer implementation
+    private static int BUFFER_SIZE = 100;
+    private static CircularBuffer messageBuffer = new CircularBuffer(BUFFER_SIZE);
+
+    public static void main(String[] args){
+
+        System.err.println("Logs from your program will appear here!");
+
+        try {
+            ServerSocket serverSocket = new ServerSocket(PORT);
+            ExecutorService executorService = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
+
+            if(serverSocket != null){
+                handleConnections(serverSocket, executorService);
+            }
+        } catch (IOException e) {
+            System.err.println("Error creating ServerSocket: " + e.getMessage());
+        }
+    }
+
+
+    private static ServerSocket createServerSocket(int port){
+        try{
+            ServerSocket serverSocket = new ServerSocket(port);
+            serverSocket.setReuseAddress(true);
+            return serverSocket;
+        } catch (IOException e) {
+            System.err.println("Failed to create server socket: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private static void handleConnections(ServerSocket serverSocket, ExecutorService executorService){
+        try{
+            while(true){
+                Socket clientSocket = serverSocket.accept();
+                System.out.println("Accepted connection from " + clientSocket.getRemoteSocketAddress());
+                executorService.submit(() -> KafkaClientHandler(clientSocket));
+            }
+        } catch (IOException e) {
+            System.err.println("Error handling connections: " + e.getMessage());
+        } finally {
+            closeServerSocket(serverSocket);
+        }
+    }
+
+    private static void closeServerSocket(ServerSocket serverSocket){
+        if (serverSocket != null){
+            try{
+                serverSocket.close();
+            } catch (IOException e){
+                System.err.println("Failed to close server socket: " + e.getMessage());
+            }
+        }
+    }
+
+
+
+    private static void KafkaClientHandler(Socket clientSocket) {
+
+        HexFormat hexFormat = HexFormat.of();
+
+        try (InputStream reader = clientSocket.getInputStream();
+             OutputStream writer = clientSocket.getOutputStream()){
+
+            while(true) {
+                int messageLength = MessageUtils.readMessageLength(reader);
+                if(messageLength <= 0) break;
+
+                byte[] message = MessageUtils.readMessage(reader, messageLength);
+                if(message != null){
+
+                    // Extract CorrelationID from received message
+                    int expectedCorrelationID = MessageUtils.extractCorrelationID(message);
+
+                    // Add the message to the circular buffer
+                    messageBuffer.add(message);
+
+                    // Process the message from the circular buffer
+                    byte[] bufferedMessage = messageBuffer.get();
+                    if(bufferedMessage != null &&
+                            MessageUtils.validateMessage(bufferedMessage, expectedCorrelationID)){
+
+
+                        System.err.println("Valid CorrelationID, processing message.");
+                        MessageUtils.processMessage(writer, bufferedMessage);
+
+                        // Send response to client
+                        //String responseMessage = "Hi";
+                        //byte[] responseBytes = responseMessage.getBytes();
+                        //writer.write(responseBytes);
+                        //writer.flush();
+                        // Deserialize responseMessage to view correctly
+                        //System.out.println("Response sent to client: " + responseMessage);
+
+
+                    } else {
+                        System.err.println("Invalid CorrelationID, discarding message.");
+                    }
+
+                }
+            }
+        } catch (IOException e){
+            System.err.println("Error while handling client: " + e.getMessage());
+        } finally {
+            closeClientSocket(clientSocket);
+        }
+    }
+
+    private static void closeClientSocket(Socket clientSocket) {
+        try{
+            System.out.println("Connection from " + clientSocket.getRemoteSocketAddress() + " ended");
+            clientSocket.close();
+        } catch (IOException e) {
+            System.err.println("Error closing client socket: " + e.getMessage());
+        }
+    }
+
 }

@@ -1,4 +1,4 @@
 *.jar
 target/
 .idea/
-*.xml
+kafka-java/*.xml
